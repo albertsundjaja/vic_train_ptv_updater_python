@@ -6,7 +6,7 @@ class StopInRun(EmbeddedDocument):
     route_id = IntField
     direction_id = IntField
     scheduled_depatures = DateTimeField
-    platform_number = IntField
+    platform_number = StringField
     disruption_ids = ListField(IntField)
 
 class Run(Document):
