@@ -6,8 +6,10 @@ import requests
 from models.train_route import TrainRoute
 from models.run import Run, StopInRun
 from models.train_stop import TrainStop
+from models.train_direction import TrainDirection
 import time
 from datetime import datetime
+import dateutil.parser
 
 URL_ALL_TRAIN_ROUTES = "/v3/routes?route_types=0"
 
@@ -16,6 +18,11 @@ URL_ALL_STATIONS_IN_ROUTES = "/v3/stops/route/{0}/route_type/0"
 
 # fill the stop id
 URL_ALL_RUNS_FROM_STOP = "/v3/departures/route_type/0/stop/{0}"
+
+# fill the direction_id and route type
+URL_DIRECTION_FROM_DIRECTION_ID = "/v3/directions/{0}/route_type/{1}"
+
+URL_ALL_LINES_ID = "/v2/lines/mode/0"
 
 
 def _upsert_train_route(route):
@@ -76,18 +83,39 @@ def _upsert_run(departure, route_type):
 
     # get all the stop ids that is already in the train run for checking
     stop_in_train_run_ids = [stop.stop_id for stop in train_run.stops]
-    
+
     if departure['stop_id'] not in stop_in_train_run_ids:
         stop_in_run = StopInRun()
         stop_in_run.stop_id = departure['stop_id']
+        train_stop = TrainStop.objects(stop_id=departure['stop_id'])
+        stop_in_run.stop_name = train_stop[0].stop_name
+
         stop_in_run.route_id = departure['route_id']
         stop_in_run.direction_id = departure['direction_id']
-        stop_in_run.scheduled_depatures = departure['scheduled_departure_utc']
+        # the departure date is in ISO8601 RFC3339 format
+        parsed_date = dateutil.parser.parse(departure['scheduled_departure_utc'])
+        stop_in_run.scheduled_depatures = parsed_date
         stop_in_run.platform_number = departure['platform_number']
         stop_in_run.disruption_ids = departure['disruption_ids']
         train_run.stops.append(stop_in_run)
 
     train_run.save()
+
+
+def _upsert_direction(direction):
+    train_direction = TrainDirection.objects(direction_id = direction['direction_id'])
+    if len(train_direction) == 0:
+        train_direction = TrainDirection()
+        train_direction.direction_id = direction['direction_id']
+
+    else:
+        train_direction = train_direction[0]
+
+    train_direction.direction_name = direction['direction_name']
+    train_direction.route_id = direction['route_id']
+    train_direction.route_type = direction['route_type']
+    train_direction.route_direction_description = direction['route_direction_description']
+    train_direction.save()
 
 
 def get_encrypted_url(request):
@@ -139,11 +167,12 @@ def query_and_update_all_train_stops():
 
     routes = TrainRoute.objects()
     for route in routes:
-        query_url = URL_ALL_STATIONS_IN_ROUTES.format(route.route_id)
+        query_url = get_encrypted_url(URL_ALL_STATIONS_IN_ROUTES.format(route.route_id))
         req = requests.get(query_url)
         stops = req.json()['stops']
         for stop in stops:
             _upsert_stop(stop)
+            time.sleep(0.5)
 
 
 def query_and_update_all_train_runs(counts=300):
@@ -155,18 +184,85 @@ def query_and_update_all_train_runs(counts=300):
     Args:
         count (int): get the runs schedule for these number of counts
 
+    will update run collection
+
     """
     stops = TrainStop.objects()
     now = datetime.now()
     startDate = datetime(now.year, now.month, now.day, 0, 0, 0).isoformat() + 'Z'
 
+    #i = 0
     for stop in stops:
+        #i += 1
+        #print("processing stops {0}/{1}".format(i, len(stops)))
         url = URL_ALL_RUNS_FROM_STOP.format(stop.stop_id) + "?date_utc={0}&max_results={1}".format(startDate, counts)
         query_url = get_encrypted_url(url)
         req = requests.get(query_url)
         runs = req.json()['departures']
         for run in runs:
-            _upsert_run(run)
+            _upsert_run(run, 0)
+        time.sleep(0.5) 
 
 
+def query_and_update_train_direction_id():
+    """
+    Query PTV api for all direction id
+
+    Loop through all DISTINCT direction_id from runs
+
+    will update train_direction collection
+    """
+    distinct_direction_id = Run.objects().distinct(field="stops.direction_id")
+    
+    for direction_id in distinct_direction_id:
+        url = get_encrypted_url(URL_DIRECTION_FROM_DIRECTION_ID.format(direction_id, 0))
+        req = requests.get(url)
+        directions = req.json()['directions']
+        for direction in directions:
+            _upsert_direction(direction)
+
+
+def deduce_train_route_stops_order():
+    """
+    This will make use of run collection to deduce the stop order for a given route
+
+    """
+
+    routes = TrainRoute.objects()
+    for route in routes:
+        print(route.route_id)
+        route.stops_order = []
+        runs = Run.objects(stops__route_id=route['route_id'])
+        longest_stops = []
+        for run in runs:
+            if len(run.stops) > len(longest_stops):
+                longest_stops = run.stops
+
+        longest_stops = sorted(longest_stops, key=lambda stop: stop.scheduled_depatures)
+        for stop in longest_stops:
+            stop_dict = {
+                "stop_id": stop.stop_id,
+                "stop_name": stop.stop_name,
+                "stop_suburb": stop.stop_suburb
+            }
+            route.stops_order.append(stop_dict)
+        
+        route.save()
+        break
+
+    
+def _rename_field_in_EmbbededDocumentListField():
+    """
+    used to rename field inside list of embbedded document
+    """
+
+    runs = Run.objects()
+    for run in runs:
+        stops = run.stops
+        for stop in stops:
+            stop.scheduled_departures = stop.scheduled_depatures
+        
+        run.stops=stops
+        
+        run.save()
 

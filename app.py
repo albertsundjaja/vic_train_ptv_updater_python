@@ -14,4 +14,11 @@ config.DEV_KEY = sys.argv[2]
 #results = mongo.test_col.find({"no":1})
 #print(results[:])
 
-ptv_utils.query_all_train_routes()
+#ptv_utils.query_and_update_all_train_routes()
+
+#ptv_utils.query_and_update_all_train_stops()
+#ptv_utils.query_and_update_all_train_runs()
+
+#ptv_utils.query_and_update_train_direction_id()
+
+ptv_utils.deduce_train_route_stops_order()

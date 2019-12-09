@@ -1,7 +1,8 @@
 from mongoengine import *
+from models.train_stop import TrainStop
 
 class TrainRoute(Document):
     route_id = IntField(unique=True)
     route_name = StringField()
-    stops_order = ListField(DictField)
+    stops_order = ListField(DictField())
 
