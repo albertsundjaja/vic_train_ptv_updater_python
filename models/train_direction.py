@@ -6,3 +6,4 @@ class TrainDirection(Document):
     route_id = IntField()
     route_type = IntField()
     route_direction_description = StringField()
+    stops_order = ListField(DictField())

@@ -22,6 +22,9 @@ URL_ALL_RUNS_FROM_STOP = "/v3/departures/route_type/0/stop/{0}"
 # fill the direction_id and route type
 URL_DIRECTION_FROM_DIRECTION_ID = "/v3/directions/{0}/route_type/{1}"
 
+# fill with route_id and direction_id
+URL_STOPS_ORDER = "/v3/stops/route/{0}/route_type/0?direction_id={1}"
+
 URL_ALL_LINES_ID = "/v2/lines/mode/0"
 
 
@@ -160,7 +163,7 @@ def query_and_update_all_train_stops():
     """
     Query the PTV API for all train stops
 
-    It will loop through all train routes and get the station that it stops
+    It will loop through all train routes from train_route collection and get the station that it stops
 
     this function update the train_stop collection
     """
@@ -179,7 +182,7 @@ def query_and_update_all_train_runs(counts=300):
     """
     Query the PTV api for all train runs
 
-    It will loop through all train stops and get the runs for that station
+    It will loop through all train stops from train_stop collection and get the runs for that station
 
     Args:
         count (int): get the runs schedule for these number of counts
@@ -204,11 +207,11 @@ def query_and_update_all_train_runs(counts=300):
         time.sleep(0.5) 
 
 
-def query_and_update_train_direction_id():
+def query_and_update_train_direction():
     """
     Query PTV api for all direction id
 
-    Loop through all DISTINCT direction_id from runs
+    Loop through all DISTINCT direction_id from run collection
 
     will update train_direction collection
     """
@@ -222,33 +225,23 @@ def query_and_update_train_direction_id():
             _upsert_direction(direction)
 
 
-def deduce_train_route_stops_order():
+def query_and_update_train_route_stops_order():
     """
-    This will make use of run collection to deduce the stop order for a given route
+    Query PTV api for the stop order for all route_id, route_type, direction_id
 
+    Loop through all route_id and direction_id from train_direction collection
+
+    will update train_route.stops collection
     """
 
-    routes = TrainRoute.objects()
-    for route in routes:
-        print(route.route_id)
-        route.stops_order = []
-        runs = Run.objects(stops__route_id=route['route_id'])
-        longest_stops = []
-        for run in runs:
-            if len(run.stops) > len(longest_stops):
-                longest_stops = run.stops
-
-        longest_stops = sorted(longest_stops, key=lambda stop: stop.scheduled_depatures)
-        for stop in longest_stops:
-            stop_dict = {
-                "stop_id": stop.stop_id,
-                "stop_name": stop.stop_name,
-                "stop_suburb": stop.stop_suburb
-            }
-            route.stops_order.append(stop_dict)
-        
-        route.save()
-        break
+    directions = TrainDirection.objects()
+    for direction in directions:
+        url = URL_STOPS_ORDER.format(direction.route_id, direction.direction_id)
+        encrypted_url = get_encrypted_url(url)
+        req = requests.get(encrypted_url)
+        stops = req.json()['stops']
+        direction.stops_order = stops
+        direction.save()
 
     
 def _rename_field_in_EmbbededDocumentListField():
