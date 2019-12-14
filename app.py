@@ -26,6 +26,7 @@ def update():
     Update db periodically
     """
     ptv_utils.query_and_update_all_train_runs()
+    # TODO add last update time
 
 
 init()
